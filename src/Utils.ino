@@ -2,18 +2,20 @@
 #include "time.h"
 #include <Esp.h>
 
-static void error() {
+static void error()
+{
   Serial.println(F("\r\n*** FATAL ERROR *** About to do a soft restart of the ESP32 now!"));
-  int loop=150;
-  while (loop>0) {
-    digitalWrite( RED_LED, HIGH);
+  int loop = 150;
+  while (loop > 0)
+  {
+    digitalWrite(RED_LED, HIGH);
     delay(50);
-    digitalWrite( RED_LED, LOW);
+    digitalWrite(RED_LED, LOW);
     delay(150);
     loop--;
-  } 
+  }
 
-  //softReset(); 
+  //softReset();
   ESP.restart();
 }
 
