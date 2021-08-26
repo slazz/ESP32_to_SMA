@@ -11,9 +11,9 @@
 
 // NOTE: You MUST change the next line to give the BT MAC address of your SMA inverter.
 // 00:80:25:26:8A:C2
-unsigned char smaBTInverterAddressArray[6] = {0x00, 0x80, 0x25, 0x26, 0x8A, 0xC2}; // BT address of my SMA.
+// unsigned char smaBTInverterAddressArray[6] = {0x00, 0x80, 0x25, 0x26, 0x8A, 0xC2}; // BT address of my SMA.
+unsigned char smaBTInverterAddressArray[6] = {0xC2, 0x8A, 0x26, 0x25, 0x80, 0x00};
 
-// NOTE: You MUST change the next line to give the BT MAC address of your ESP32 module.
-unsigned char myBTAddress[6] = {0x00, 0x00, 0x00, 0xF2, 0x3A, 0x08}; // BT address of my ESP32.
+unsigned char myBTAddress[6] = {}; // BT address of ESP32.
 
 void BTStart();

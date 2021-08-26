@@ -2,6 +2,7 @@
  NANODE SMA PV MONITOR
  SMANetArduino.ino
  */
+#include "Arduino.h"
 
 unsigned int readLevel1PacketFromBluetoothStream(int index)
 {
@@ -166,6 +167,9 @@ void waitForPacket(unsigned int cmdcodetowait)
   do
   {
     cmdcode = readLevel1PacketFromBluetoothStream(0);
+    Serial.print("Command code: ");
+    Serial.println(cmdcode);
+    delay(1);
   } while (cmdcode != cmdcodetowait);
 
   return;
@@ -468,22 +472,59 @@ void InquireBlueToothSignalStrength() {
 }
 */
 
+void printMAC(unsigned char *addr)
+{
+
+  for (int i = 0; i < 6; i++)
+  {
+    char str[3];
+    sprintf(str, "%02X", (int)addr[i]);
+    Serial.print(str);
+    if (i < 5)
+    {
+      Serial.print(":");
+    }
+  }
+}
+
 bool ValidateSenderAddress()
 {
   // Compares the SMA inverter address to the "from" address contained in the message.
   // Debug prints "P wrng dest" if there is no match.
-  return (Level1SrcAdd[5] == smaBTInverterAddressArray[5] &&
-          Level1SrcAdd[4] == smaBTInverterAddressArray[4] &&
-          Level1SrcAdd[3] == smaBTInverterAddressArray[3] &&
-          Level1SrcAdd[2] == smaBTInverterAddressArray[2] &&
-          Level1SrcAdd[1] == smaBTInverterAddressArray[1] &&
-          Level1SrcAdd[0] == smaBTInverterAddressArray[0]);
+  Serial.print("Lvel1: ");
+  printMAC(Level1SrcAdd);
+  Serial.print("  SMABT: ");
+  printMAC(smaBTInverterAddressArray);
+  Serial.println();
+
+  bool ret = (Level1SrcAdd[5] == smaBTInverterAddressArray[5] &&
+              Level1SrcAdd[4] == smaBTInverterAddressArray[4] &&
+              Level1SrcAdd[3] == smaBTInverterAddressArray[3] &&
+              Level1SrcAdd[2] == smaBTInverterAddressArray[2] &&
+              Level1SrcAdd[1] == smaBTInverterAddressArray[1] &&
+              Level1SrcAdd[0] == smaBTInverterAddressArray[0]);
+  Serial.print("Sending back: ");
+  Serial.println(ret);
+  return ret;
+  // return (Level1SrcAdd[5] == smaBTInverterAddressArray[5] &&
+  //         Level1SrcAdd[4] == smaBTInverterAddressArray[4] &&
+  //         Level1SrcAdd[3] == smaBTInverterAddressArray[3] &&
+  //         Level1SrcAdd[2] == smaBTInverterAddressArray[2] &&
+  //         Level1SrcAdd[1] == smaBTInverterAddressArray[1] &&
+  //         Level1SrcAdd[0] == smaBTInverterAddressArray[0]);
 }
 
 bool IsPacketForMe()
 {
   // Compares the ESP32 address to the received "to" address in the message.
   // Debug prints "P wrng snder" if it does not match.
+  debugMsg("My BT address: ");
+  printMAC(myBTAddress);
+  debugMsgln("");
+  debugMsg("Level1dstaddr: ");
+  printMAC(Level1DestAdd);
+  debugMsgln("");
+
   return (ValidateDestAddress(sixzeros) || ValidateDestAddress(myBTAddress) || ValidateDestAddress(sixff));
 }
 

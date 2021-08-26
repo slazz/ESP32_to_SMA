@@ -35,12 +35,12 @@ ESP32Time nextMidnight; // Create a time structure to hold the answer to "What t
 #define timeZoneOffset 60 * 60 * 0
 
 #undef debugMsgln
-//#define debugMsgln(s) (__extension__(  {Serial.println(F(s));}  ))
-#define debugMsgln(s) (__extension__({ __asm__("nop\n\t"); }))
+#define debugMsgln(s) (__extension__({ Serial.println(F(s)); }))
+// #define debugMsgln(s) (__extension__({ __asm__("nop\n\t"); }))
 
 #undef debugMsg
-//#define debugMsg(s) (__extension__(  {Serial.print(F(s));}  ))
-#define debugMsg(s) (__extension__({ __asm__("nop\n\t"); }))
+#define debugMsg(s) (__extension__({ Serial.print(F(s)); }))
+// #define debugMsg(s) (__extension__({ __asm__("nop\n\t"); }))
 
 //Do we switch off upload to sites when its dark?
 #undef allowsleep
@@ -95,11 +95,13 @@ void loop()
 
   BTStart();
 
+  debugMsgln("Init connection...");
   initialiseSMAConnection();
 
   //Dont really need this...
   //InquireBlueToothSignalStrength();
 
+  debugMsgln("logonSMAInverter...");
   logonSMAInverter();
 
   checkIfNeedToSetInverterTime();
@@ -108,6 +110,7 @@ void loop()
   //HistoricData();
   lastRanTime = millis() - 4000;
 
+  debugMsgln("While...");
   while (1)
   {
     //debugMsgln("Main loop");
@@ -120,6 +123,7 @@ void loop()
     if (nowTime > (lastRanTime + 4000))
     {
       lastRanTime = nowTime;
+      Serial.print("^");
       getInstantACPower();
     }
 
@@ -314,22 +318,32 @@ void initialiseSMAConnection()
   //Wait for announcement/broadcast message from PV inverter
   waitForPacket(0x0002);
 
+  Serial.println("debug 1");
   //Extract data from the 0002 packet
   unsigned char netid = level1packet[4];
 
   // Now create a response and send it.
-  writePacketHeader(level1packet, 0x02, 0x00, smaBTInverterAddressArray);
-  writeSMANET2ArrayFromProgmem(level1packet, smanet2packet99, sizeof(smanet2packet99));
-  writeSMANET2SingleByte(level1packet, netid);
-  writeSMANET2ArrayFromProgmem(level1packet, fourzeros, sizeof(fourzeros));
-  writeSMANET2ArrayFromProgmem(level1packet, smanet2packet0x01000000, sizeof(smanet2packet0x01000000));
-  writePacketLength(level1packet);
+  unsigned char deffirst[] = {0x7E, 0x1F, 0x00, 0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC2, 0x8A, 0x26, 0x25, 0x80, 0x00, 0x02, 0x00, 0x00, 0x04, 0x70, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+
+  for (int i = 0; i < sizeof(level1packet); i++)
+    level1packet[i] = 0x00;
+  for (int i = 0; i < sizeof(deffirst); i++)
+    level1packet[i] = deffirst[i];
+  // writePacketHeader(level1packet, 0x02, 0x00, smaBTInverterAddressArray);
+  // writeSMANET2ArrayFromProgmem(level1packet, smanet2packet99, sizeof(smanet2packet99));
+  // writeSMANET2SingleByte(level1packet, netid);
+  // writeSMANET2ArrayFromProgmem(level1packet, fourzeros, sizeof(fourzeros));
+  // writeSMANET2ArrayFromProgmem(level1packet, smanet2packet0x01000000, sizeof(smanet2packet0x01000000));
+  // writePacketLength(level1packet);
+  packetposition = 31;
   sendPacket(level1packet);
 
+  Serial.println("debug 2");
   // The SMA inverter will respond with a packet carrying the command '0x000A'.
   // It will rturn with cmdcode set to 0x000A.
   waitForPacket(0x000a);
 
+  Serial.println("debug 3");
   // The SMA inverter will now send two packets, one carrying the '0x000C' command, then the '0x0005' command.
   // Sit in the following loop until you get one of these two packets.
   while ((cmdcode != 0x000c) && (cmdcode != 0x0005))
@@ -337,6 +351,7 @@ void initialiseSMAConnection()
     cmdcode = readLevel1PacketFromBluetoothStream(0);
   }
 
+  Serial.println("debug 4");
   // If the most recent packet was command code = 0x0005 skip this next line, otherwise, wait for 0x0005 packet.
   // Since the first SMA packet after a 0x000A packet will be a 0x000C packet, you'll probably sit here waiting at least once.
   if (cmdcode != 0x0005)
@@ -344,6 +359,7 @@ void initialiseSMAConnection()
     waitForPacket(0x0005);
   }
 
+  Serial.println("debug 5");
   do
   {
     //First SMANET2 packet
@@ -361,16 +377,19 @@ void initialiseSMAConnection()
   } while (!validateChecksum());
   packet_send_counter++;
 
+  Serial.println("debug 6");
   //Second SMANET2 packet
   writePacketHeader(level1packet, sixff);
   writeSMANET2PlusPacket(level1packet, 0x08, 0xa0, packet_send_counter, 0x00, 0x03, 0x03);
   writeSMANET2ArrayFromProgmem(level1packet, smanet2packet2, sizeof(smanet2packet2));
 
+  Serial.println("debug 7");
   writeSMANET2PlusPacketTrailer(level1packet);
   writePacketLength(level1packet);
   sendPacket(level1packet);
   packet_send_counter++;
   //No reply for this message...
+  Serial.println("debug 8");
 }
 
 prog_uchar PROGMEM smanet2packet_logon[] = {

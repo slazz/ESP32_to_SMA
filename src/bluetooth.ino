@@ -8,13 +8,17 @@
 #include <Time.h>
 #include "BluetoothSerial.h"
 #include <EEPROM.h>
+#include <esp_bt_device.h> // ESP32 BLE
 
 //SoftwareSerial blueToothSerial(RxD,TxD);
 
 BluetoothSerial SerialBT;
-uint8_t address[6] = {0x00, 0x80, 0x25, 0x27, 0xE3, 0xC5}; // Address of my SMA inverter.
-const char pinbuf[] = {'0', '0', '0', '0'};                // BT pin, not the inverter login password. Always 0000.
-const char *pin = &pinbuf[0];
+// uint8_t address[6] = {0x00, 0x80, 0x25, 0x27, 0xE3, 0xC5}; // Address of my SMA inverter.
+
+uint8_t address[6] = {0x00, 0x80, 0x25, 0x26, 0x8A, 0xC2};
+const char pinbuf[] = {'0', '0', '0', '0'}; // BT pin, not the inverter login password. Always 0000.
+// const char *pin = &pinbuf[0];
+const char *pin = "0000";
 bool connected;
 static long charTime = 0;
 
@@ -22,6 +26,10 @@ void BTStart()
 {
   SerialBT.begin("ESP32test", true); // "true" creates this device as a BT Master.
   SerialBT.setPin(pin);              // pin as in "PIN" This is the BT connection pin, not login pin. ALWAYS 0000, unchangable.
+  updateMyDeviceAddress();
+  Serial.print("My BT Address: ");
+  printDeviceAddress();
+  Serial.println("");
   Serial.println("The SM32 started in master mode. Now trying to connect to SMA inverter.");
   connected = SerialBT.connect(address);
 
@@ -42,18 +50,47 @@ void BTStart()
   }
 }
 
+void printDeviceAddress()
+{
+
+  const uint8_t *point = esp_bt_dev_get_address();
+
+  for (int i = 0; i < 6; i++)
+  {
+    char str[3];
+    sprintf(str, "%02X", (int)point[i]);
+    Serial.print(str);
+    if (i < 5)
+    {
+      Serial.print(":");
+    }
+  }
+}
+
+void updateMyDeviceAddress()
+{
+  const uint8_t *point = esp_bt_dev_get_address();
+  for (int i = 0; i < 6; i++)
+  {
+    // Save address in reverse because ¯\_(ツ)_/¯
+    myBTAddress[i] = (char)point[5 - i];
+  }
+}
+
 void sendPacket(unsigned char *btbuffer)
 {
   //quickblink();
-  //Serial.println();
-  //Serial.println("Sending: ");
+  Serial.println();
+  Serial.println("Sending: ");
+  SerialBT.write(btbuffer, packetposition);
   for (int i = 0; i < packetposition; i++)
   {
-    SerialBT.write(*(btbuffer + i)); // Send message char-by-char to SMA via ESP32 bluetooth
-    //Serial.print( *(btbuffer+i), HEX ); // Print out what we are sending, in hex, for inspection.
-    //Serial.print(' ');
+    // SerialBT.write(*(btbuffer + i)); // Send message char-by-char to SMA via ESP32 bluetooth
+    // SerialBT.write(btbuffer[i]);
+    Serial.print(btbuffer[i], HEX); // Print out what we are sending, in hex, for inspection.
+    Serial.print(' ');
   }
-  //Serial.println();
+  Serial.println();
 }
 
 /* by DRH. Not ready to blink LEDs yet.
