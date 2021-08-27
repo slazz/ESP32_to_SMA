@@ -9,6 +9,7 @@
 #include "BluetoothSerial.h"
 #include <EEPROM.h>
 #include <esp_bt_device.h> // ESP32 BLE
+#include "debug.h"
 
 //SoftwareSerial blueToothSerial(RxD,TxD);
 
@@ -16,37 +17,48 @@ BluetoothSerial SerialBT;
 // uint8_t address[6] = {0x00, 0x80, 0x25, 0x27, 0xE3, 0xC5}; // Address of my SMA inverter.
 
 uint8_t address[6] = {0x00, 0x80, 0x25, 0x26, 0x8A, 0xC2};
-const char pinbuf[] = {'0', '0', '0', '0'}; // BT pin, not the inverter login password. Always 0000.
+// const char pinbuf[] = {'0', '0', '0', '0'}; // BT pin, not the inverter login password. Always 0000.
 // const char *pin = &pinbuf[0];
-const char *pin = "0000";
+// const char *pin = "0000";
 bool connected;
 static long charTime = 0;
 
-void BTStart()
-{
-  SerialBT.begin("ESP32test", true); // "true" creates this device as a BT Master.
-  SerialBT.setPin(pin);              // pin as in "PIN" This is the BT connection pin, not login pin. ALWAYS 0000, unchangable.
-  updateMyDeviceAddress();
-  Serial.print("My BT Address: ");
-  printDeviceAddress();
-  Serial.println("");
-  Serial.println("The SM32 started in master mode. Now trying to connect to SMA inverter.");
-  connected = SerialBT.connect(address);
+#define STATE_FRESH 0
+#define STATE_SETUP 1
+#define STATE_CONNECTED 2
+uint8_t btstate = STATE_FRESH;
 
-  if (connected)
+// Setup the Bluetooth connection, returns true on success, false otherwise
+// On fail, should be called again.
+bool BTStart()
+{
+  if (btstate == STATE_FRESH)
   {
+    SerialBT.begin("ESP32test", true); // "true" creates this device as a BT Master.
+    SerialBT.setPin("0000");           // pin as in "PIN" This is the BT connection pin, not login pin. ALWAYS 0000, unchangable.
+    updateMyDeviceAddress();
+    debugMsg("My BT Address: ");
+    printDeviceAddress();
+    debugMsgLn("");
+    debugMsgLn("The SM32 started in master mode. Now trying to connect to SMA inverter.");
+    SerialBT.connect(address);
+  }
+
+  if (SerialBT.connected(1))
+  {
+    btstate = STATE_CONNECTED;
     Serial.println("Connected succesfully!");
+    return true;
     //digitalWrite(output22, HIGH);  // Green on
     //digitalWrite(output23, LOW);  // Yellow off
   }
   else
   {
-    while (!SerialBT.connected(10000))
-    {
-      Serial.println("Failed to connect. Make sure remote device is available and in range, then restart app.");
-      //digitalWrite(output23, LOW);  // Yellow off
-      //digitalWrite(output22, LOW);  // Green off
-    }
+    btstate = STATE_SETUP;
+    Serial.println("Failed to connect. Make sure remote device is available and in range, then restart app.");
+    return false;
+    //digitalWrite(output23, LOW);  // Yellow off
+    //digitalWrite(output22, LOW);  // Green off
   }
 }
 
@@ -59,10 +71,10 @@ void printDeviceAddress()
   {
     char str[3];
     sprintf(str, "%02X", (int)point[i]);
-    Serial.print(str);
+    debugMsg(str);
     if (i < 5)
     {
-      Serial.print(":");
+      debugMsg(":");
     }
   }
 }
@@ -79,18 +91,18 @@ void updateMyDeviceAddress()
 
 void sendPacket(unsigned char *btbuffer)
 {
-  //quickblink();
-  Serial.println();
-  Serial.println("Sending: ");
   SerialBT.write(btbuffer, packetposition);
-  for (int i = 0; i < packetposition; i++)
-  {
-    // SerialBT.write(*(btbuffer + i)); // Send message char-by-char to SMA via ESP32 bluetooth
-    // SerialBT.write(btbuffer[i]);
-    Serial.print(btbuffer[i], HEX); // Print out what we are sending, in hex, for inspection.
-    Serial.print(' ');
-  }
-  Serial.println();
+  //quickblink();
+  // Serial.println();
+  // Serial.println("Sending: ");
+  // for (int i = 0; i < packetposition; i++)
+  // {
+  //   // SerialBT.write(*(btbuffer + i)); // Send message char-by-char to SMA via ESP32 bluetooth
+  //   // SerialBT.write(btbuffer[i]);
+  //   Serial.print(btbuffer[i], HEX); // Print out what we are sending, in hex, for inspection.
+  //   Serial.print(' ');
+  // }
+  // Serial.println();
 }
 
 /* by DRH. Not ready to blink LEDs yet.
@@ -144,7 +156,7 @@ unsigned char getByte()
     delay(5); //Wait for BT byte to arrive
     if (millis() > time)
     {
-      debugMsgln("Timeout");
+      debugMsgLn("Timeout");
       error();
     }
   }

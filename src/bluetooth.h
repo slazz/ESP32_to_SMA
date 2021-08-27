@@ -16,4 +16,4 @@ unsigned char smaBTInverterAddressArray[6] = {0xC2, 0x8A, 0x26, 0x25, 0x80, 0x00
 
 unsigned char myBTAddress[6] = {}; // BT address of ESP32.
 
-void BTStart();
+bool BTStart();

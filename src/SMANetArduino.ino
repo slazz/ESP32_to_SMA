@@ -34,7 +34,7 @@ unsigned int readLevel1PacketFromBluetoothStream(int index)
     errorCodePCS = false;
   else
   {
-    debugMsgln("Inv hdr");
+    debugMsgLn("Inv hdr");
     Serial.println("*** Invalid header chksum.");
     errorCodePCS = true;
   }
@@ -57,7 +57,7 @@ unsigned int readLevel1PacketFromBluetoothStream(int index)
   }
   else
   {
-    debugMsgln("P wrng dest");
+    debugMsgLn("P wrng dest");
     //Serial.println("*** Not from SMA.");
     errorCodeVSA = true;
   }
@@ -68,7 +68,7 @@ unsigned int readLevel1PacketFromBluetoothStream(int index)
   }
   else
   {
-    debugMsgln("P wrng snder");
+    debugMsgLn("P wrng snder");
     //Serial.println("*** Not to me.");
     errorCodePIFM = true;
   }
@@ -157,46 +157,57 @@ bool containsLevel2Packet()
 // It is called when you know a Level1 message is coming.
 // NOTE: NEVER call this function with cmdcodetowait = 0xFFFF. That value is returned
 //   if the packet has a checksum error, or it's not addressed to me, etc...
-// This function just discards the packet if there is an error, and resumes waiting.
+// This function just discards the packet if there is an error, returns true on success
+// false otherwise, at which point it should be called again
 
-void waitForPacket(unsigned int cmdcodetowait)
+unsigned int lastGetPacket = -1;
+bool getPacket(unsigned int cmdcodetowait)
 {
-
-  prepareToReceive();
-
-  do
+  if (lastGetPacket != cmdcodetowait)
   {
-    cmdcode = readLevel1PacketFromBluetoothStream(0);
-    Serial.print("Command code: ");
-    Serial.println(cmdcode);
-    delay(1);
-  } while (cmdcode != cmdcodetowait);
-
-  return;
+    prepareToReceive();
+    lastGetPacket = cmdcodetowait;
+  }
+  cmdcode = readLevel1PacketFromBluetoothStream(0);
+  debugMsg("Command code: ");
+  debugMsgLn(String(cmdcode));
+  delay(1);
+  if (cmdcode == cmdcodetowait)
+  {
+    return true;
+    lastGetPacket = -1;
+  }
+  return false;
 }
+
+void waitForPacket(unsigned int xxx)
+{
+  // pass
+}
+
 //------------------------------------------------------------------
 // This code will also look for the proper command code.
 // The difference to the function above is that it will search deeply through the level1packet[] array.
 // Level 2 messages (PPP messages) follow the Level 1 packet header part. Each Level 2 packet starts with
 //   7E FF 03 60 65.
-void waitForMultiPacket(unsigned int cmdcodetowait)
+unsigned int lastMulticmdcode = -1;
+bool waitForMultiPacket(unsigned int cmdcodetowait)
 {
-  //debugMsg("waitForMultiPacket=0x");  Serial.print(cmdcodetowait,HEX);
 
   //prepareToReceive();
   //Serial.println(" ");
-  while (cmdcode != cmdcodetowait)
-  {
-    prepareToReceive();
-    //Serial.println("*** In waitForMultiPacket. About to call readLevel1PacketFromBluetoothStream(0) ***");
-    //cmdcode = readLevel1PacketFromBluetoothStream(packetposition);
-    cmdcode = readLevel1PacketFromBluetoothStream(0);
-    //Serial.println(" ");
-    //Serial.print("*** Done reading packet. cmdcode = ");
-    //Serial.println(cmdcode);
-  }
+  prepareToReceive();
+  //Serial.println("*** In waitForMultiPacket. About to call readLevel1PacketFromBluetoothStream(0) ***");
+  //cmdcode = readLevel1PacketFromBluetoothStream(packetposition);
+  lastMulticmdcode = readLevel1PacketFromBluetoothStream(0);
+  //Serial.println(" ");
+  //Serial.print("*** Done reading packet. cmdcode = ");
+  //Serial.println(cmdcode);
+  if (lastMulticmdcode == cmdcodetowait)
+    return true;
+
   //Serial.println("Now returning from 'waitForMultiPacket'.");
-  return;
+  return false;
 }
 
 void writeSMANET2Long(unsigned char *btbuffer, unsigned long v)
@@ -518,12 +529,12 @@ bool IsPacketForMe()
 {
   // Compares the ESP32 address to the received "to" address in the message.
   // Debug prints "P wrng snder" if it does not match.
-  debugMsg("My BT address: ");
-  printMAC(myBTAddress);
-  debugMsgln("");
-  debugMsg("Level1dstaddr: ");
-  printMAC(Level1DestAdd);
-  debugMsgln("");
+  // debugMsg("My BT address: ");
+  // printMAC(myBTAddress);
+  // debugMsgLn("");
+  // debugMsg("Level1dstaddr: ");
+  // printMAC(Level1DestAdd);
+  // debugMsgLn("");
 
   return (ValidateDestAddress(sixzeros) || ValidateDestAddress(myBTAddress) || ValidateDestAddress(sixff));
 }
