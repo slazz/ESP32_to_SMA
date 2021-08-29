@@ -169,9 +169,8 @@ bool getPacket(unsigned int cmdcodetowait)
     lastGetPacket = cmdcodetowait;
   }
   cmdcode = readLevel1PacketFromBluetoothStream(0);
-  debugMsg("Command code: ");
-  debugMsgLn(String(cmdcode));
-  delay(1);
+  // debugMsg("Command code: ");
+  // debugMsgLn(String(cmdcode));
   if (cmdcode == cmdcodetowait)
   {
     return true;

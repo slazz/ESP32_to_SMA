@@ -38,7 +38,11 @@ bool BTStart()
     SerialBT.setPin("0000");           // pin as in "PIN" This is the BT connection pin, not login pin. ALWAYS 0000, unchangable.
     updateMyDeviceAddress();
     debugMsg("My BT Address: ");
-    printDeviceAddress();
+    const uint8_t *addr = esp_bt_dev_get_address();
+    printDeviceAddress(addr);
+    debugMsgLn("");
+    debugMsg("SMA BT Address (reversed): ");
+    printDeviceAddress(smaBTInverterAddressArray);
     debugMsgLn("");
     debugMsgLn("The SM32 started in master mode. Now trying to connect to SMA inverter.");
     SerialBT.connect(address);
@@ -62,11 +66,13 @@ bool BTStart()
   }
 }
 
-void printDeviceAddress()
+bool BTCheckConnected()
 {
+  return SerialBT.connected(1);
+}
 
-  const uint8_t *point = esp_bt_dev_get_address();
-
+void printDeviceAddress(const uint8_t *point)
+{
   for (int i = 0; i < 6; i++)
   {
     char str[3];

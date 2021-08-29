@@ -25,7 +25,19 @@
 #include "site_details.h"
 #include "debug.h"
 
-WebServer server(80);
+#include "EspMQTTClient.h"
+
+// A time in Unix Epoch that is "now" - used to check that the NTP server has
+// sync'd the time correctly before updating the inverter
+#define AFTER_NOW 1630152740
+
+EspMQTTClient client(
+    SSID,
+    PASSWORD,
+    MQTT_SERVER,
+    "", // Can be omitted if not needed
+    "", // Can be omitted if not needed
+    HOST);
 
 ESP32Time ESP32rtc;     // Time structure. Holds what time the ESP32 thinks it is.
 ESP32Time nextMidnight; // Create a time structure to hold the answer to "What time (in time_t seconds) is the upcoming midnight?"
@@ -41,7 +53,10 @@ ESP32Time nextMidnight; // Create a time structure to hold the answer to "What t
 //    0=UTC (London)
 //19800=5.5hours Chennai, Kolkata
 //36000=Brisbane (UTC+10hrs)
-#define timeZoneOffset 60 * 60 * 0
+#define timeZoneOffset (long)(60 * 60 * TIME_ZONE)
+
+#define NaN_S32 (int32_t)0x80000000  // "Not a Number" representation for LONG (converted to 0 by SBFspot)
+#define NaN_U32 (uint32_t)0xFFFFFFFF // "Not a Number" representation for ULONG (converted to 0 by SBFspot)
 
 // #undef debugMsgln
 // #define debugMsgln(s) (__extension__({ Serial.println(F(s)); }))
@@ -50,6 +65,42 @@ ESP32Time nextMidnight; // Create a time structure to hold the answer to "What t
 // #undef debugMsg
 // #define debugMsg(s) (__extension__({ Serial.print(F(s)); }))
 // #define debugMsg(s) (__extension__({ __asm__("nop\n\t"); }))
+
+/// Convert a uint64_t (unsigned long long) to a string.
+/// Arduino String/toInt/Serial.print() can't handle printing 64 bit values.
+/// @param[in] input The value to print
+/// @param[in] base The output base.
+/// @returns A String representation of the integer.
+/// @note Based on Arduino's Print::printNumber()
+String uint64ToString(uint64_t input, uint8_t base = 10)
+{
+  String result = "";
+  // prevent issues if called with base <= 1
+  if (base < 2)
+    base = 10;
+  // Check we have a base that we can actually print.
+  // i.e. [0-9A-Z] == 36
+  if (base > 36)
+    base = 10;
+
+  // Reserve some string space to reduce fragmentation.
+  // 16 bytes should store a uint64 in hex text which is the likely worst case.
+  // 64 bytes would be the worst case (base 2).
+  result.reserve(16);
+
+  do
+  {
+    char c = input % base;
+    input /= base;
+
+    if (c < 10)
+      c += '0';
+    else
+      c += 'A' - 10;
+    result = c + result;
+  } while (input);
+  return result;
+}
 
 bool blinklaststate;
 void blinkLed()
@@ -73,10 +124,9 @@ static uint64_t currentvalue = 0;
 static unsigned int valuetype = 0;
 static unsigned long value = 0;
 static uint64_t value64 = 0;
-static unsigned long oldvalue = 0;
 static long lastRanTime = 0;
 static long nowTime = 0;
-static unsigned long spotpowerac = 0;
+// static unsigned long spotpowerac = 0;
 static unsigned long spotpowerdc = 0;
 // "datetime" stores the number of seconds since the epoch (normally 01/01/1970), AS RETRIEVED
 //     from the SMA. The value is updated when data is read from the SMA, like when
@@ -105,82 +155,108 @@ bool checkIfNeedToSetInverterTime();
 bool getInstantACPower();
 bool getTotalPowerGeneration();
 
-unsigned int lastprogress = -1;
-void setupOTAServer()
+// unsigned int lastprogress = -1;
+// void setupOTAServer()
+// {
+//   server.on("/", HTTP_GET, []()
+//             {
+//               server.sendHeader("Connection", "close");
+//               server.send(200, "text/plain", "login index");
+//             });
+//   server.on("/reboot", HTTP_GET, []()
+//             {
+//               debugMsgLn("Reboot requested!");
+//               server.sendHeader("Connection", "close");
+//               server.send(200, "text/plain", "Rebooting...");
+//               ESP.restart();
+//             });
+//   /*handling uploading firmware file */
+//   server.on(
+//       "/update", HTTP_POST, []()
+//       {
+//         server.sendHeader("Connection", "close");
+//         server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+//         ESP.restart();
+//       },
+//       []()
+//       {
+//         HTTPUpload &upload = server.upload();
+//         Update.onProgress([](unsigned int progress, unsigned int total)
+//                           {
+//                             unsigned int pcg = progress / (total / 100);
+//                             Serial.printf("Progress: %u%%\r", pcg);
+//                             // Only update network every 10%
+//                             if ((pcg / 5) != (lastprogress / 5))
+//                             {
+//                               lastprogress = pcg;
+//                               debugMsg("Progress: ");
+//                               debugMsg(String(pcg));
+//                               debugMsgLn("%");
+//                             }
+//                             blinkLed();
+//                           });
+//         if (upload.status == UPLOAD_FILE_START)
+//         {
+//           debugMsg("Update: ");
+//           debugMsgLn(upload.filename.c_str());
+//           if (!Update.begin(UPDATE_SIZE_UNKNOWN))
+//           { //start with max available size
+//             Update.printError(Serial);
+//           }
+//         }
+//         else if (upload.status == UPLOAD_FILE_WRITE)
+//         {
+//           /* flashing firmware to ESP*/
+//           if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+//           {
+//             Update.printError(Serial);
+//           }
+//         }
+//         else if (upload.status == UPLOAD_FILE_END)
+//         {
+//           if (Update.end(true))
+//           { //true to set the size to the current progress
+//             debugMsg("Update Success!");
+//             Serial.printf(" Bytes: %u", upload.totalSize);
+//             debugMsgLn("\nRebooting...");
+//           }
+//           else
+//           {
+//             Update.printError(Serial);
+//           }
+//         }
+//       });
+//   server.begin();
+// }
+
+void onConnectionEstablished()
 {
-  server.on("/", HTTP_GET, []()
-            {
-              server.sendHeader("Connection", "close");
-              server.send(200, "text/plain", "login index");
-            });
-  server.on("/reboot", HTTP_GET, []()
-            {
-              debugMsgLn("Reboot requested!");
-              server.sendHeader("Connection", "close");
-              server.send(200, "text/plain", "Rebooting...");
-              ESP.restart();
-            });
-  /*handling uploading firmware file */
-  server.on(
-      "/update", HTTP_POST, []()
-      {
-        server.sendHeader("Connection", "close");
-        server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
-        ESP.restart();
-      },
-      []()
-      {
-        HTTPUpload &upload = server.upload();
-        Update.onProgress([](unsigned int progress, unsigned int total)
-                          {
-                            unsigned int pcg = progress / (total / 100);
-                            Serial.printf("Progress: %u%%\r", pcg);
-                            // Only update network every 10%
-                            if ((pcg / 5) != (lastprogress / 5))
-                            {
-                              lastprogress = pcg;
-                              debugMsg("Progress: ");
-                              debugMsg(String(pcg));
-                              debugMsgLn("%");
-                            }
-                            blinkLed();
-                          });
-        if (upload.status == UPLOAD_FILE_START)
-        {
-          debugMsg("Update: ");
-          debugMsgLn(upload.filename.c_str());
-          if (!Update.begin(UPDATE_SIZE_UNKNOWN))
-          { //start with max available size
-            Update.printError(Serial);
-          }
-        }
-        else if (upload.status == UPLOAD_FILE_WRITE)
-        {
-          /* flashing firmware to ESP*/
-          if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
-          {
-            Update.printError(Serial);
-          }
-        }
-        else if (upload.status == UPLOAD_FILE_END)
-        {
-          if (Update.end(true))
-          { //true to set the size to the current progress
-            debugMsg("Update Success!");
-            Serial.printf(" Bytes: %u", upload.totalSize);
-            debugMsgLn("\nRebooting...");
-          }
-          else
-          {
-            Update.printError(Serial);
-          }
-        }
-      });
-  server.begin();
+  client.publish(MQTT_BASE_TOPIC "LWT", "online", true);
+  debugMsgLn("WiFi and MQTT connected");
+  debugMsgLn("v1 Build time: " __TIME__ " date: " __DATE__);
+
+#ifdef PUBLISH_HASS_TOPICS
+  // client.publish(MQTT_BASE_TOPIC "LWT", "online", true);
+  client.publish("homeassistant/sensor/" HOST "/signal/config", "{\"name\": \"" FRIENDLY_NAME " Signal Strength\", \"state_topic\": \"" MQTT_BASE_TOPIC "signal\", \"unique_id\": \"" HOST "-signal\", \"unit_of_measurement\": \"dB\", \"device\": {\"identifiers\": [\"" HOST "-device\"], \"name\": \"" FRIENDLY_NAME "\"}}", true);
+  client.publish("homeassistant/sensor/" HOST "/generation_today/config", "{\"name\": \"" FRIENDLY_NAME " Power Generation Today\", \"device_class\": \"energy\", \"state_topic\": \"" MQTT_BASE_TOPIC "generation_today\", \"unique_id\": \"" HOST "-generation_today\", \"unit_of_measurement\": \"Wh\", \"state_class\": \"total_increasing\", \"device\": {\"identifiers\": [\"" HOST "-device\"]} }", true);
+  client.publish("homeassistant/sensor/" HOST "/generation_total/config", "{\"name\": \"" FRIENDLY_NAME " Power Generation Total\", \"device_class\": \"energy\", \"state_topic\": \"" MQTT_BASE_TOPIC "generation_total\", \"unique_id\": \"" HOST "-generation_total\", \"unit_of_measurement\": \"Wh\", \"state_class\": \"total_increasing\", \"device\": {\"identifiers\": [\"" HOST "-device\"]} }", true);
+  client.publish("homeassistant/sensor/" HOST "/instant_ac/config", "{\"name\": \"" FRIENDLY_NAME " Instantinous AC Power\", \"device_class\": \"energy\", \"state_topic\": \"" MQTT_BASE_TOPIC "instant_ac\", \"unique_id\": \"" HOST "-instant_ac\", \"unit_of_measurement\": \"W\", \"state_class\": \"measurement\", \"device\": {\"identifiers\": [\"" HOST "-device\"]} }", true);
+
+// mosquitto_pub -h core.sf -t homeassistant/sensor/sma-monitor/generation_today/config -m '{ "name": "Power Generation Today", "device_class": "energy", "state_topic": "sma/solar/generation_today", "unique_id": "sma-monitor-generation_today", "unit_of_measurement": "Wh", "state_class": "total_increasing", "device": {"identifiers": ["sma-monitor-device"]} }'
+// mosquitto_pub -h core.sf -t homeassistant/sensor/sma-monitor/generation_total/config -m '{ "name": "Power Generation Total", "device_class": "energy", "state_topic": "sma/solar/generation_total", "unique_id": "sma-monitor-generation_total", "unit_of_measurement": "Wh", "state_class": "total_increasing", "device": {"identifiers": ["sma-monitor-device"]} }'
+// mosquitto_pub -h core.sf -t homeassistant/sensor/sma-monitor/instant_ac/config -m '{ "name": "Instant AC Power", "device_class": "power", "state_topic": "sma/solar/instant_ac", "unique_id": "sma-monitor-instant_ac", "unit_of_measurement": "W", "state_class": "measurement", "device": {"identifiers": ["sma-monitor-device"]} }'
+
+// mosquitto_pub -h core.sf -t homeassistant/sensor/sma-monitor/signal/config -m '{ "name": "Signal Strength", "state_topic": "sma/solar/signal", "unique_id": "sma-monitor-signal", "unit_of_measurement": "dB", "device": {"identifiers": ["sma-monitor-device"], "name": "SMA Inverter"} }'
+#endif // PUBLISH_HASS_TOPICS
 }
 
 void setup()
 {
+  // Get the MAC address in reverse order (not sure why, but do it here to make setup easier)
+  unsigned char smaSetAddress[6] = {SMA_ADDRESS};
+  for (int i = 0; i < 6; i++)
+    smaBTInverterAddressArray[i] = smaSetAddress[5 - i];
+
   pinMode(LED_BUILTIN, OUTPUT);
   debugSetup();
 
@@ -188,16 +264,23 @@ void setup()
   ESP32rtc.setTime(30, 24, 15, 17, 1, 2021); // 17th Jan 2021 15:24:30  // Need this to be accurate. Since connecting to the internet anyway, use NTP.
 
   // Connect to WiFi network
-  WiFi.begin(SSID, PASSWORD);
-  Serial.println("");
+  // WiFi.begin(SSID, PASSWORD);
+  // Serial.println("");
 
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    blinkLed();
-    delay(500);
-    Serial.print(".");
-  }
+  // // Wait for connection
+  // while (WiFi.status() != WL_CONNECTED)
+  // {
+  //   blinkLed();
+  //   delay(500);
+  //   Serial.print(".");
+  // }
+
+  client.setMaxPacketSize(512); // must be big enough to send home assistant config
+  client.enableMQTTPersistence();
+  client.enableDebuggingMessages();                                     // Enable debugging messages sent to serial output
+  client.enableHTTPWebUpdater("/update");                               // Enable the web updater. User and password default to values of MQTTUsername and MQTTPassword. These can be overrited with enableHTTPWebUpdater("user", "password").
+  client.enableLastWillMessage(MQTT_BASE_TOPIC "LWT", "offline", true); // You can activate the retain flag by setting the third parameter to true
+
   debugMsgLn("");
   debugMsg("Connected to ");
   debugMsgLn(SSID);
@@ -206,15 +289,22 @@ void setup()
   // Serial.println(WiFi.localIP());
 
   // Always set time to GMT timezone
-  configTime(0, 0, NTP_SERVER);
+  configTime(timeZoneOffset, 0, NTP_SERVER);
 
-  debugMsgLn("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX v4");
-  setupOTAServer();
+  // setupOTAServer();
 }
 
 void everySecond()
 {
   blinkLedOff();
+
+  // debugMsg("Connection is: ");
+  // if (client.isConnected())
+  //   debugMsgLn("connected");
+  // else
+  //   debugMsgLn("DISconnected");
+
+  // client.publish(MQTT_BASE_TOPIC "hello", "message");
 
   // debugMsg("Current Time: ");
   // char timeStr[22];
@@ -222,6 +312,14 @@ void everySecond()
   // getLocalTime(&timeinfo);
   // strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
   // debugMsgLn(timeStr);
+}
+
+void every5Minutes()
+{
+  if (client.isConnected())
+  {
+    client.publish(MQTT_BASE_TOPIC "signal", String(WiFi.RSSI()));
+  }
 }
 
 unsigned long sleepuntil = 0;
@@ -233,10 +331,15 @@ void dodelay(unsigned long duration)
 uint8_t mainstate = 0;
 uint8_t innerstate = 0;
 unsigned long nextSecond = 0;
+unsigned long next5Minute = 0;
+int thisminute = -1;
+int checkbtminute = -1;
 
 void loop()
 {
-  server.handleClient();
+  struct tm timeinfo;
+  client.loop();
+  // server.handleClient();
 
   if (millis() >= nextSecond)
   {
@@ -244,11 +347,42 @@ void loop()
     everySecond();
   }
 
+  if (millis() >= next5Minute)
+  {
+    next5Minute = millis() + 1000 * 60;
+    every5Minutes();
+  }
+
   // "delay" the main BT loop
   if (millis() < sleepuntil)
     return;
 
+  // if in the main loop, only run at the top of the minute
+  if (mainstate >= 5)
+  {
+    getLocalTime(&timeinfo);
+    if (timeinfo.tm_min == thisminute)
+      return;
+    // Check we are connected to BT, if not, restart process
+    if (!BTCheckConnected())
+    {
+      mainstate = 0;
+    }
+  }
+
+  // Wait for initial NTP sync before setting up inverter
+  if (mainstate == 0 && ESP32rtc.getEpoch() < AFTER_NOW)
+  {
+    debugMsgLn("NTP not yet sync'd, sleeping");
+    dodelay(2000);
+  }
+
+  // Only bother to do anything if we are connected to WiFi and MQTT
+  if (!client.isConnected())
+    return;
+
   // Run the "main" BT loop
+  blinkLed();
   switch (mainstate)
   {
   case 0:
@@ -260,7 +394,7 @@ void loop()
     }
     else
     {
-      dodelay(500);
+      dodelay(5000);
     }
     break;
 
@@ -304,6 +438,8 @@ void loop()
     }
     break;
 
+    // --------- regular loop -----------------
+
   case 5:
     if (getInstantACPower())
     {
@@ -313,6 +449,22 @@ void loop()
     break;
 
   case 6:
+    if (getInstantDCPower())
+    {
+      mainstate++;
+      innerstate = 0;
+    }
+    break;
+
+  case 7:
+    if (getDailyYield())
+    {
+      mainstate++;
+      innerstate = 0;
+    }
+    break;
+
+  case 8:
     if (getTotalPowerGeneration())
     {
       mainstate++;
@@ -323,7 +475,7 @@ void loop()
   default:
     mainstate = 5;
     innerstate = 0;
-    dodelay(15000);
+    thisminute = timeinfo.tm_min;
   }
   return;
 
@@ -402,6 +554,17 @@ void loop()
   } // end of while(1)
 } // end of loop()
 
+int32_t get_long(unsigned char *buf)
+{
+  int32_t lng = 0;
+
+  memcpy(&lng, buf, 4);
+
+  if ((lng == (int32_t)NaN_S32) || (lng == (int32_t)NaN_U32))
+    lng = 0;
+  return lng;
+}
+
 //-------------------------------------------------------------------------------------------
 bool checkIfNeedToSetInverterTime()
 {
@@ -411,6 +574,12 @@ bool checkIfNeedToSetInverterTime()
   unsigned long timediff;
 
   timediff = abs(datetime - ESP32rtc.getEpoch());
+  debugMsg("Time diff: ");
+  debugMsgLn(String(timediff));
+  debugMsg("datetime: ");
+  debugMsgLn(String(datetime));
+  debugMsg("epoch: ");
+  debugMsgLn(String(ESP32rtc.getEpoch()));
 
   if (timediff > 60)
   {
@@ -480,7 +649,7 @@ void setInverterTime()
   //01 00 00 00
   //C3 27 7E
 
-  debugMsgLn("setInvTime ");
+  debugMsgLn("setInverterTime");
   time_t currenttime = ESP32rtc.getEpoch(); // Returns the ESP32 RTC in number of seconds since the epoch (normally 01/01/1970)
   //digitalClockDisplay(currenttime);
   writePacketHeader(level1packet);
@@ -489,6 +658,7 @@ void setInverterTime()
   writeSMANET2Long(level1packet, currenttime);
   writeSMANET2Long(level1packet, currenttime);
   writeSMANET2Long(level1packet, currenttime);
+  // writeSMANET2Long(level1packet, timeZoneOffset);
   writeSMANET2uint(level1packet, timeZoneOffset);
   writeSMANET2uint(level1packet, 0);
   writeSMANET2Long(level1packet, currenttime); //No idea what this is for...
@@ -505,8 +675,8 @@ prog_uchar PROGMEM smanet2totalyieldWh[] = {
 
 bool initialiseSMAConnection()
 {
-  debugMsg("initialiseSMAConnection stage: ");
-  debugMsgLn(String(innerstate));
+  // debugMsg("initialiseSMAConnection stage: ");
+  // debugMsgLn(String(innerstate));
 
   unsigned char netid;
   switch (innerstate)
@@ -609,8 +779,8 @@ prog_uchar PROGMEM smanet2packet_logon[] = {
 
 bool logonSMAInverter()
 {
-  debugMsg("logonSMAInverter stage: ");
-  debugMsgLn(String(innerstate));
+  // debugMsg("logonSMAInverter stage: ");
+  // debugMsgLn(String(innerstate));
 
   //Third SMANET2 packet
   switch (innerstate)
@@ -655,8 +825,8 @@ bool getDailyYield()
   //We expect a multi packet reply to this question...
   //We ask the inverter for its DAILY yield (generation)
   //once this is returned we can extract the current date/time from the inverter and set our internal clock
-  debugMsg("getDailyYield stage: ");
-  debugMsgLn(String(innerstate));
+  // debugMsg("getDailyYield stage: ");
+  // debugMsgLn(String(innerstate));
 
   switch (innerstate)
   {
@@ -713,8 +883,14 @@ bool getDailyYield()
     {
       memcpy(&value64, &level1packet[40 + 8 + 1], 8);
       //0x2622=Day Yield Wh
-      memcpy(&datetime, &level1packet[40 + 4 + 1], 4);
+      // memcpy(&datetime, &level1packet[40 + 4 + 1], 4);
+      datetime = get_long(level1packet + 40 + 1 + 4);
+      // debugMsg("Current Time (epoch): ");
+      // debugMsgLn(String(datetime));
+
       //setTime(datetime);
+      currentvalue = value64;
+      client.publish(MQTT_BASE_TOPIC "generation_today", uint64ToString(currentvalue), true);
       debugMsg("Day Yield: ");
       debugMsgLn(String((double)value64 / 1000));
     }
@@ -733,9 +909,10 @@ prog_uchar PROGMEM smanet2acspotvalues[] = {
 
 bool getInstantACPower()
 {
+  int32_t thisvalue;
   //Get spot value for instant AC wattage
-  debugMsg("getInstantACPower stage: ");
-  debugMsgLn(String(innerstate));
+  // debugMsg("getInstantACPower stage: ");
+  // debugMsgLn(String(innerstate));
 
   switch (innerstate)
   {
@@ -767,8 +944,14 @@ bool getInstantACPower()
 
   case 2:
     //value will contain instant/spot AC power generation along with date/time of reading...
-    memcpy(&datetime, &level1packet[40 + 1 + 4], 4);
-    memcpy(&value, &level1packet[40 + 1 + 8], 3);
+    // memcpy(&datetime, &level1packet[40 + 1 + 4], 4);
+    datetime = get_long(level1packet + 40 + 1 + 4);
+    thisvalue = get_long(level1packet + 40 + 1 + 8);
+    // memcpy(&thisvalue, &level1packet[40 + 1 + 8], 4);
+
+    currentvalue = thisvalue;
+    client.publish(MQTT_BASE_TOPIC "instant_ac", uint64ToString(currentvalue), true);
+
     debugMsg("AC ");
     //Serial.println(" ");
     //Serial.println("Got AC power level. ");
@@ -777,12 +960,11 @@ bool getInstantACPower()
     //if( value != oldvalue ) {
     //Serial.println(" ");
     //Serial.print("*** Power Level = ");
-    debugMsgLn(String(value));
+    debugMsgLn(String(thisvalue));
     //Serial.println(" Watts RMS ***");
     //Serial.print(" ");
-    oldvalue = value;
     //}
-    spotpowerac = value;
+    // spotpowerac = value;
 
     //displaySpotValues(28);
     innerstate++;
@@ -799,8 +981,8 @@ bool getTotalPowerGeneration()
 {
 
   //Gets the total kWh the SMA inverter has generated in its lifetime...
-  debugMsg("getTotalPowerGeneration stage: ");
-  debugMsgLn(String(innerstate));
+  // debugMsg("getTotalPowerGeneration stage: ");
+  // debugMsgLn(String(innerstate));
 
   switch (innerstate)
   {
@@ -837,6 +1019,7 @@ bool getTotalPowerGeneration()
     debugMsg("Total Power: ");
     debugMsgLn(String((double)value64 / 1000));
     currentvalue = value64;
+    client.publish(MQTT_BASE_TOPIC "generation_total", uint64ToString(currentvalue), true);
     innerstate++;
     break;
 
@@ -852,54 +1035,84 @@ bool getTotalPowerGeneration()
 // Just DC Power (watts)
 prog_uchar PROGMEM smanet2packetdcpower[] = {
     0x83, 0x00, 0x02, 0x80, 0x53, 0x00, 0x00, 0x25, 0x00, 0xFF, 0xFF, 0x25, 0x00};
-void getInstantDCPower()
+bool getInstantDCPower()
 {
+  // This appears broken...
+  return true;
 
   //DC
   //We expect a multi packet reply to this question...
-  do
+  debugMsg("getInstantDCPower stage: ");
+  debugMsgLn(String(innerstate));
+
+  switch (innerstate)
   {
+  case 0:
+
     writePacketHeader(level1packet);
     //writePacketHeader(level1packet,0x01,0x00,smaBTInverterAddressArray);
     writeSMANET2PlusPacket(level1packet, 0x09, 0xE0, packet_send_counter, 0, 0, 0);
+    // writeSMANET2ArrayFromProgmem(level1packet, smanet2packetx80x00x02x00, sizeof(smanet2packetx80x00x02x00));
     writeSMANET2ArrayFromProgmem(level1packet, smanet2packetdcpower, sizeof(smanet2packetdcpower));
     writeSMANET2PlusPacketTrailer(level1packet);
     writePacketLength(level1packet);
 
     sendPacket(level1packet);
-    waitForMultiPacket(0x0001);
-  } while (!validateChecksum());
-  packet_send_counter++;
+    innerstate++;
+    break;
 
-  //displaySpotValues(28);
+  case 1:
+    if (waitForMultiPacket(0x0001))
+    {
+      if (validateChecksum())
+      {
+        packet_send_counter++;
+        innerstate++;
+      }
+      else
+        innerstate = 0;
+    }
+    break;
 
-  //float volts=0;
-  //float amps=0;
+  case 2:
 
-  for (int i = 40 + 1; i < packetposition - 3; i += 28)
-  {
-    valuetype = level1packet[i + 1] + level1packet[i + 2] * 256;
-    memcpy(&value, &level1packet[i + 8], 3);
+    //displaySpotValues(28);
 
-    //valuetype
-    //0x451f=DC Voltage  /100
-    //0x4521=DC Current  /1000
-    //0x251e=DC Power /1
-    //if (valuetype==0x451f) volts=(float)value/(float)100;
-    //if (valuetype==0x4521) amps=(float)value/(float)1000;
-    if (valuetype == 0x251e)
-      spotpowerdc = value;
+    //float volts=0;
+    //float amps=0;
 
-    memcpy(&datetime, &level1packet[i + 4], 4);
+    for (int i = 40 + 1; i < packetposition - 3; i += 28)
+    {
+      valuetype = level1packet[i + 1] + level1packet[i + 2] * 256;
+      memcpy(&value, &level1packet[i + 8], 4);
+
+      //valuetype
+      //0x451f=DC Voltage  /100
+      //0x4521=DC Current  /1000
+      //0x251e=DC Power /1
+      //if (valuetype==0x451f) volts=(float)value/(float)100;
+      //if (valuetype==0x4521) amps=(float)value/(float)1000;
+      if (valuetype == 0x251e)
+        spotpowerdc = value;
+
+      memcpy(&datetime, &level1packet[i + 4], 4);
+    }
+
+    //spotpowerdc=volts*amps;
+
+    debugMsg("DC ");
+    //digitalClockDisplay(datetime);
+    //debugMsg(" V=");Serial.print(volts);debugMsg("  A=");Serial.print(amps);
+    debugMsg(" Pwr=");
+    debugMsgLn(String(spotpowerdc));
+    innerstate++;
+    break;
+
+  default:
+    return true;
   }
 
-  //spotpowerdc=volts*amps;
-
-  debugMsg("DC ");
-  //digitalClockDisplay(datetime);
-  //debugMsg(" V=");Serial.print(volts);debugMsg("  A=");Serial.print(amps);
-  debugMsg(" Pwr=");
-  Serial.println(spotpowerdc);
+  return false;
 }
 
 /*

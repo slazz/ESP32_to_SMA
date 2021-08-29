@@ -1,30 +1,26 @@
-# ESP32_to_SMA
-This project uses an ESP32 to connect to an SMA SunnyBoy inverter, using Bluetooth.
+# SMA Inverter to MQTT via ESP32
 
-I have tested it with the SMA Model SB 8000US.
-This inverter model, circa 2013, has the Bluetooth feature added via an add-on module inside the inverter.
+This project uses an ESP32 to connect to an SMA SunnyBoy inverter, using Bluetooth, and regularly publish generation data via MQTT. There is also an option to publish the required topics to allow Home Assistant to automatically detect the various sensors.
 
-The starting point for this project was the code posted by "stuartpittaway" on github. That really well done project can be found at: https://github.com/stuartpittaway/nanodesmapvmonitor
+It was originally forked from https://github.com/delhatch/ESP32_to_SMA, but I also heavily referenced https://github.com/SBFspot/SBFspot.
 
-NOTE: To connect to your ESP32 module, and your inverter, you'll need to change the MAC address constants in the bluetooth.h file.
+This is working for me - but the code is some what of a mess and could do with some (lots of) cleaning up.
 
-CODE CHANGES:
-I modified / added / subtracted features (compared to nanodesmapvmonitor) in the following ways:
+All my development and testing was done on an SMA Sunny Boy SB 5000TL-21 (manufactured in 2021).
 
-1) It uses the DOIT ESP32 DEVKIT V1 module by Zerynth, and will probably run on most ESP32 modules. (The nanodesmapvmonitor project uses an Arduino board + USB-to-Bluetooth dongle.)
+## Setup
 
-2) Does not interfere with, and is not confused by, an existing SMA Sunny Beam display device. No cross-interference.
+All required configuration is done in the `site_details.h` file, to create this, copy the `site_details-example.h` file to `site_details.h` and update all of the constants accordingly.
 
-3) Removed the PVoutput.org reporting.
+The project is developed and designed for use in VScode/PlatformIO. It may work in Arduino, but I would _highly_ recommend using PlatformIO as it'll also automatically get the libraries etc that are required.
 
-4) I only use the "getInstantACPower()" function to extract that information from the inverter. Getting other information from the inverter probably still works, but has not been tested.
+## Flashing the image
 
+The image initially needs to be flashed via Serial, update your `platformio.ini` accordingly to match your setup.
 
-TODO:
+Once the first image is uploaded, and it's connected to the network, you can update using OTA updades:
 
-1) Restore the function whereby it only talks to the SMA inverter when the sun is up. Will probably use the "ESP32Time" library by fbiego while doing this.
+- Build the `firmware.bin` file (PlatfromIO Build)
+- Run `curl` to upload the new file, for example: `curl -F "image=@.pio/build/lolin_d32/firmware.bin" http://1.2.3.4/update`
 
-2) Use some LEDs to indicate connection status, and perhaps blink an LED, as BT packets are exchaged.
-
-
-KNOWN BUGS: None.
+If you have any questions, please create a GitHub issue and I'll try to help.
