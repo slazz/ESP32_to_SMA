@@ -349,7 +349,7 @@ void loop()
 
   if (millis() >= next5Minute)
   {
-    next5Minute = millis() + 1000 * 60;
+    next5Minute = millis() + 1000 * 60 * 5;
     every5Minutes();
   }
 
