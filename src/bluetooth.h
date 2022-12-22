@@ -15,4 +15,5 @@ unsigned char smaBTInverterAddressArray[6] = {};
 unsigned char myBTAddress[6] = {}; // BT address of ESP32.
 
 bool BTStart();
+bool BTEnd();
 bool BTCheckConnected();

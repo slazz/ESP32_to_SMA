@@ -16,7 +16,7 @@
 BluetoothSerial SerialBT;
 // uint8_t address[6] = {0x00, 0x80, 0x25, 0x27, 0xE3, 0xC5}; // Address of my SMA inverter.
 
-uint8_t address[6] = {0x00, 0x80, 0x25, 0x26, 0x8A, 0xC2};
+uint8_t address[6] = {SMA_ADDRESS};
 // const char pinbuf[] = {'0', '0', '0', '0'}; // BT pin, not the inverter login password. Always 0000.
 // const char *pin = &pinbuf[0];
 // const char *pin = "0000";
@@ -46,6 +46,7 @@ bool BTStart()
     debugMsgLn("");
     debugMsgLn("The SM32 started in master mode. Now trying to connect to SMA inverter.");
     SerialBT.connect(address);
+    SerialBT.setTimeout(5000); // Set a 5 second timeout for reads/peeks
   }
 
   if (SerialBT.connected(1))
@@ -64,6 +65,13 @@ bool BTStart()
     //digitalWrite(output23, LOW);  // Yellow off
     //digitalWrite(output22, LOW);  // Green off
   }
+}
+
+bool BTEnd()
+{
+    SerialBT.end();
+    btstate = STATE_FRESH;
+    return 0;
 }
 
 bool BTCheckConnected()
