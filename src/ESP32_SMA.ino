@@ -35,8 +35,8 @@ EspMQTTClient client(
     SSID,
     PASSWORD,
     MQTT_SERVER,
-    "", // Can be omitted if not needed
-    "", // Can be omitted if not needed
+    MQTT_USERNAME, // Can be omitted if not needed
+    MQTT_PASSWORD, // Can be omitted if not needed
     HOST);
 
 ESP32Time ESP32rtc;     // Time structure. Holds what time the ESP32 thinks it is.
@@ -240,7 +240,7 @@ void onConnectionEstablished()
   client.publish("homeassistant/sensor/" HOST "/signal/config", "{\"name\": \"" FRIENDLY_NAME " Signal Strength\", \"state_topic\": \"" MQTT_BASE_TOPIC "signal\", \"unique_id\": \"" HOST "-signal\", \"unit_of_measurement\": \"dB\", \"device\": {\"identifiers\": [\"" HOST "-device\"], \"name\": \"" FRIENDLY_NAME "\"}}", true);
   client.publish("homeassistant/sensor/" HOST "/generation_today/config", "{\"name\": \"" FRIENDLY_NAME " Power Generation Today\", \"device_class\": \"energy\", \"state_topic\": \"" MQTT_BASE_TOPIC "generation_today\", \"unique_id\": \"" HOST "-generation_today\", \"unit_of_measurement\": \"Wh\", \"state_class\": \"total_increasing\", \"device\": {\"identifiers\": [\"" HOST "-device\"]} }", true);
   client.publish("homeassistant/sensor/" HOST "/generation_total/config", "{\"name\": \"" FRIENDLY_NAME " Power Generation Total\", \"device_class\": \"energy\", \"state_topic\": \"" MQTT_BASE_TOPIC "generation_total\", \"unique_id\": \"" HOST "-generation_total\", \"unit_of_measurement\": \"Wh\", \"state_class\": \"total_increasing\", \"device\": {\"identifiers\": [\"" HOST "-device\"]} }", true);
-  client.publish("homeassistant/sensor/" HOST "/instant_ac/config", "{\"name\": \"" FRIENDLY_NAME " Instantinous AC Power\", \"device_class\": \"energy\", \"state_topic\": \"" MQTT_BASE_TOPIC "instant_ac\", \"unique_id\": \"" HOST "-instant_ac\", \"unit_of_measurement\": \"W\", \"state_class\": \"measurement\", \"device\": {\"identifiers\": [\"" HOST "-device\"]} }", true);
+  client.publish("homeassistant/sensor/" HOST "/instant_ac/config", "{\"name\": \"" FRIENDLY_NAME " Instantaneous AC Power\", \"device_class\": \"energy\", \"state_topic\": \"" MQTT_BASE_TOPIC "instant_ac\", \"unique_id\": \"" HOST "-instant_ac\", \"unit_of_measurement\": \"W\", \"state_class\": \"measurement\", \"device\": {\"identifiers\": [\"" HOST "-device\"]} }", true);
 
 // mosquitto_pub -h core.sf -t homeassistant/sensor/sma-monitor/generation_today/config -m '{ "name": "Power Generation Today", "device_class": "energy", "state_topic": "sma/solar/generation_today", "unique_id": "sma-monitor-generation_today", "unit_of_measurement": "Wh", "state_class": "total_increasing", "device": {"identifiers": ["sma-monitor-device"]} }'
 // mosquitto_pub -h core.sf -t homeassistant/sensor/sma-monitor/generation_total/config -m '{ "name": "Power Generation Total", "device_class": "energy", "state_topic": "sma/solar/generation_total", "unique_id": "sma-monitor-generation_total", "unit_of_measurement": "Wh", "state_class": "total_increasing", "device": {"identifiers": ["sma-monitor-device"]} }'
@@ -334,9 +334,13 @@ unsigned long nextSecond = 0;
 unsigned long next5Minute = 0;
 int thisminute = -1;
 int checkbtminute = -1;
+unsigned long lastUpdateTime = 0;
+int connectAttempts = 0;
 
 void loop()
 {
+  // debugMsgLn("loop()");
+
   struct tm timeinfo;
   client.loop();
   // server.handleClient();
@@ -351,6 +355,11 @@ void loop()
   {
     next5Minute = millis() + 1000 * 60 * 5;
     every5Minutes();
+    // If we haven't updated in the last 5 minutes, reboot because we have probably lost the BT connection
+    // if (millis() - lastUpdateTime > 1000 * 60 * 5) {
+    //   debugMsgLn("Haven't got an update in the last 5 minutes. Resetting...");
+    //   ESP.restart();
+    // };
   }
 
   // "delay" the main BT loop
@@ -367,6 +376,8 @@ void loop()
     if (!BTCheckConnected())
     {
       mainstate = 0;
+      debugMsgLn("BT not connected. Calling BTEnd()");
+      BTEnd();
     }
   }
 
@@ -391,10 +402,21 @@ void loop()
       debugMsgLn("Next: Init connection...");
       mainstate++;
       innerstate = 0;
+      connectAttempts = 0;
     }
     else
     {
-      dodelay(5000);
+      // Try to connect 5 times with a 5 second delay between each connect
+      if (connectAttempts < 5) {
+        connectAttempts++;
+        dodelay(5000);
+      } else {
+        // Otherwise sleep 5 minutes and 
+        debugMsgLn("BTStart failed. Sleeping 5 minutes before retry...");
+        BTEnd();
+        dodelay(300000);
+        connectAttempts = 0;
+      }
     }
     break;
 
@@ -446,6 +468,7 @@ void loop()
       mainstate++;
       innerstate = 0;
     }
+    lastUpdateTime = millis();
     break;
 
   case 6:
@@ -573,7 +596,7 @@ bool checkIfNeedToSetInverterTime()
 
   unsigned long timediff;
 
-  timediff = abs(datetime - ESP32rtc.getEpoch());
+  timediff = abs(long(datetime - ESP32rtc.getEpoch()));
   debugMsg("Time diff: ");
   debugMsgLn(String(timediff));
   debugMsg("datetime: ");
