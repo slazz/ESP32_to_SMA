@@ -21,6 +21,8 @@
 
 // MQTT server hostname/IP address
 #define MQTT_SERVER "mqtt.server"
+#define MQTT_USERNAME "" // Can be omitted if not needed
+#define MQTT_PASSWORD "" // Can be omitted if not needed
 // MQTT base topic, must end with a /
 #define MQTT_BASE_TOPIC "sma/solar/"
 
