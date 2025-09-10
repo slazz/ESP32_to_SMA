@@ -12,6 +12,10 @@
 // #define SMA_ADDRESS 0xAA, 0xBB, 0xCC, 0x00, 0x11, 0x22
 #define SMA_ADDRESS 0x00, 0x80, 0x25, 0x00, 0x11, 0x22
 
+// System password for the "User" user group, default is 0000
+// Must 12 bytes long, with zeros as trailing bytes
+#define SMA_PASSCODE '0', '0', '0', '0', 0, 0, 0, 0, 0, 0, 0, 0
+
 // WiFi details
 #define SSID "xxx"
 #define PASSWORD "xxx"

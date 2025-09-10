@@ -146,7 +146,7 @@ prog_uchar PROGMEM smanet2packet99[] = {0x00, 0x04, 0x70, 0x00};
 prog_uchar PROGMEM smanet2packet0x01000000[] = {0x01, 0x00, 0x00, 0x00};
 
 //Password needs to be 12 bytes long, with zeros as trailing bytes (Assume SMA INVERTER PIN code is 0000)
-const unsigned char SMAInverterPasscode[] = {'0', '0', '0', '0', 0, 0, 0, 0, 0, 0, 0, 0};
+const unsigned char SMAInverterPasscode[12] = {SMA_ADDRESS};
 
 // Function Prototypes
 bool initialiseSMAConnection();
@@ -339,8 +339,6 @@ int connectAttempts = 0;
 
 void loop()
 {
-  // debugMsgLn("loop()");
-
   struct tm timeinfo;
   client.loop();
   // server.handleClient();
@@ -355,11 +353,11 @@ void loop()
   {
     next5Minute = millis() + 1000 * 60 * 5;
     every5Minutes();
-    // If we haven't updated in the last 5 minutes, reboot because we have probably lost the BT connection
-    // if (millis() - lastUpdateTime > 1000 * 60 * 5) {
-    //   debugMsgLn("Haven't got an update in the last 5 minutes. Resetting...");
-    //   ESP.restart();
-    // };
+    // If we haven't updated in the last 60 minutes, reboot just because
+    if (millis() - lastUpdateTime > 1000 * 60 * 60) {
+      debugMsgLn("Haven't got an update in the last 60 minutes. Rebooting...");
+      ESP.restart();
+    };
   }
 
   // "delay" the main BT loop

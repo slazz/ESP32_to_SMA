@@ -5,6 +5,7 @@
 static void error()
 {
   Serial.println(F("\r\n*** FATAL ERROR *** About to do a soft restart of the ESP32 now!"));
+  debugMsgLn("*** FATAL ERROR *** About to do a soft restart of the ESP32 now!");
   int loop = 150;
   while (loop > 0)
   {

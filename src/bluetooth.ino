@@ -52,7 +52,7 @@ bool BTStart()
   if (SerialBT.connected(1))
   {
     btstate = STATE_CONNECTED;
-    Serial.println("Connected succesfully!");
+    debugMsgLn("Connected succesfully!");
     return true;
     //digitalWrite(output22, HIGH);  // Green on
     //digitalWrite(output23, LOW);  // Yellow off
@@ -60,7 +60,7 @@ bool BTStart()
   else
   {
     btstate = STATE_SETUP;
-    Serial.println("Failed to connect. Make sure remote device is available and in range, then restart app.");
+    debugMsgLn("Failed to connect. Make sure remote device is available and in range.");
     return false;
     //digitalWrite(output23, LOW);  // Yellow off
     //digitalWrite(output22, LOW);  // Green off

@@ -22,5 +22,6 @@ Once the first image is uploaded, and it's connected to the network, you can upd
 
 - Build the `firmware.bin` file (PlatfromIO Build)
 - Run `curl` to upload the new file, for example: `curl -F "image=@.pio/build/lolin_d32/firmware.bin" http://1.2.3.4/update`
+- Or browse to http://192.168.0.25/update
 
 If you have any questions, please create a GitHub issue and I'll try to help.
