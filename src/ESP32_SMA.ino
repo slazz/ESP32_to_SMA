@@ -971,6 +971,16 @@ bool getInstantACPower()
     // memcpy(&thisvalue, &level1packet[40 + 1 + 8], 4);
 
     currentvalue = thisvalue;
+    // Sometimes this returns 1056985344 for some reason so if we get a value 
+    // which is way too big, lets just try again
+    if (currentvalue > 100000) {
+      debugMsg("Got invalid (>100000) value for AC Pwr=");
+      debugMsg(String(thisvalue));
+      debugMsg(", trying again...");
+      innerstate = 0;
+      break;
+    }
+
     client.publish(MQTT_BASE_TOPIC "instant_ac", uint64ToString(currentvalue), true);
 
     debugMsg("AC ");
@@ -1036,10 +1046,22 @@ bool getTotalPowerGeneration()
     //displaySpotValues(16);
     memcpy(&datetime, &level1packet[40 + 1 + 4], 4);
     memcpy(&value64, &level1packet[40 + 1 + 8], 8);
+    currentvalue = value64;
+
+    // Sometimes this returns 1438338763247011900 for some reason so if we get a value 
+    // which is way too big, lets just try again
+    if (currentvalue > 1000000000000) {
+      debugMsg("Got invalid (>1000000000000) value for Total Power: ");
+      debugMsg(String((double)value64 / 1000));
+      debugMsg(", trying again...");
+      innerstate = 0;
+      break;
+    }
+
     //digitalClockDisplay(datetime);
     debugMsg("Total Power: ");
     debugMsgLn(String((double)value64 / 1000));
-    currentvalue = value64;
+
     client.publish(MQTT_BASE_TOPIC "generation_total", uint64ToString(currentvalue), true);
     innerstate++;
     break;
